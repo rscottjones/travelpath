@@ -8,48 +8,79 @@
     {{< travelpath "iceland" >}}
     {{< travelpath map="japan-2023" >}}
     {{< travelpath map="flights" height="600px" basemap="positron" >}}
+    {{< travelpath map="flights-from-phx" segments="flights-from-phx-2024" >}}
 */}}
 
-{{/* ══ 1. RESOLVE MAP NAME ══ */}}
+{{/* ══ 1. RESOLVE MAP NAME + OPTIONAL SEGMENTS OVERRIDE ══ */}}
 {{ $mapName := "" }}
 {{ if .IsNamedParams }}{{ $mapName = .Get "map" }}{{ else }}{{ $mapName = .Get 0 }}{{ end }}
 {{ if not $mapName }}<!-- travelpath: no map name -->{{ else }}
+{{/* segments param overrides the derived "{map}-segments" key.
+     Accepts comma-separated list to composite multiple segment files. */}}
+{{ $segmentsParam := "" }}
+{{ if .IsNamedParams }}{{ with .Get "segments" }}{{ $segmentsParam = . }}{{ end }}{{ end }}
 
 {{/* ══ 2. LOAD DATA FILES ══ */}}
 {{ $settings := index .Site.Data "travelpath" $mapName }}
-{{ $segKey   := printf "%s-segments" $mapName }}
-{{ $rawSegs  := index .Site.Data "travelpath" $segKey }}
+{{ $rawSegs  := slice }}
+{{ if $segmentsParam }}
+  {{/* Load each comma-separated segment file (replace mode) */}}
+  {{ $keys := split $segmentsParam "," }}
+  {{ range $keys }}
+    {{ $k := trim . " " }}
+    {{ if $k }}
+      {{ $fileSegs := index $.Site.Data "travelpath" $k }}
+      {{ if $fileSegs }}
+        {{ range $fileSegs }}
+          {{ $rawSegs = $rawSegs | append . }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+{{ else }}
+  {{/* Default: load {map}-segments */}}
+  {{ $segKey := printf "%s-segments" $mapName }}
+  {{ $rawSegs = index .Site.Data "travelpath" $segKey }}
+{{ end }}
 
 {{ if and (not $settings) (not $rawSegs) }}
 <!-- travelpath: no data for "{{ $mapName }}" -->
 {{ else }}
 
-{{/* ══ 3. DETECT MODE ══ */}}
-{{ $isHub := false }}
+{{/* ══ 3. DETECT MODE — uses Scratch to avoid Hugo 0.91 variable scoping issues ══ */}}
+{{ .Page.Scratch.Set "tpIsHub" false }}
 {{ if $settings }}
-  {{ if and (isset $settings "hub_lat") (isset $settings "hub_lon") }}
-    {{ if and $settings.hub_lat $settings.hub_lon }}{{ $isHub = true }}{{ end }}
+  {{ if and (isset $settings "hub-lat") (isset $settings "hub-lon") }}
+    {{ if and (index $settings "hub-lat") (index $settings "hub-lon") }}
+      {{ .Page.Scratch.Set "tpIsHub" true }}
+    {{ end }}
   {{ end }}
-  {{ if not $isHub }}
-    {{ if isset $settings "hub_airport" }}{{ if $settings.hub_airport }}{{ $isHub = true }}{{ end }}{{ end }}
+  {{ if not (.Page.Scratch.Get "tpIsHub") }}
+    {{ if isset $settings "hub-airport" }}
+      {{ if index $settings "hub-airport" }}
+        {{ .Page.Scratch.Set "tpIsHub" true }}
+      {{ end }}
+    {{ end }}
   {{ end }}
 {{ end }}
+{{ $isHub := .Page.Scratch.Get "tpIsHub" }}
 
 {{/* ══ 4. RESOLVE PARAMETERS (shortcode > settings > default) ══ */}}
 {{ $scHeight     := "" }}{{ $scBasemap := "" }}{{ $scLineColor := "" }}{{ $scLineStyle := "" }}
 {{ $scLineWeight := "" }}{{ $scStats   := "" }}{{ $scStatsUnit := "" }}{{ $scGrid      := "" }}
-{{ $scIcon       := "" }}{{ $scArrows  := "" }}
+{{ $scIcon       := "" }}{{ $scArrows  := "" }}{{ $scCluster := "" }}
 {{ if .IsNamedParams }}
   {{ with .Get "height"      }}{{ $scHeight     = . }}{{ end }}
   {{ with .Get "basemap"     }}{{ $scBasemap    = . }}{{ end }}
-  {{ with .Get "line_color"  }}{{ $scLineColor  = . }}{{ end }}
-  {{ with .Get "line_style"  }}{{ $scLineStyle  = . }}{{ end }}
-  {{ with .Get "line_weight" }}{{ $scLineWeight = . }}{{ end }}
+  {{ with .Get "line-color"  }}{{ $scLineColor  = . }}{{ end }}
+  {{ with .Get "line-style"  }}{{ $scLineStyle  = . }}{{ end }}
+  {{ with .Get "line-weight" }}{{ $scLineWeight = . }}{{ end }}
   {{ with .Get "stats"       }}{{ $scStats      = . }}{{ end }}
   {{ with .Get "units"       }}{{ $scStatsUnit  = . }}{{ end }}
   {{ with .Get "grid"        }}{{ $scGrid       = . }}{{ end }}
   {{ with .Get "icon"        }}{{ $scIcon       = . }}{{ end }}
   {{ with .Get "arrows"      }}{{ $scArrows     = . }}{{ end }}
+  {{ with .Get "cluster"     }}{{ $scCluster    = . }}{{ end }}
 {{ end }}
 
 {{/* Settings file values */}}
@@ -59,13 +90,13 @@
 {{ if $settings }}
     {{ if isset $settings "height"       }}{{ $sHeight     = printf "%v" $settings.height       }}{{ end }}
     {{ if isset $settings "basemap"      }}{{ $sBasemap    = printf "%v" $settings.basemap      }}{{ end }}
-    {{ if isset $settings "line_color"   }}{{ $sLineColor  = printf "%v" $settings.line_color   }}{{ end }}
-    {{ if isset $settings "line_style"   }}{{ $sLineStyle  = printf "%v" $settings.line_style   }}{{ end }}
-    {{ if isset $settings "line_weight"  }}{{ $sLineWeight = printf "%v" $settings.line_weight  }}{{ end }}
+    {{ if isset $settings "line-color"   }}{{ $sLineColor  = printf "%v" (index $settings "line-color")   }}{{ end }}
+    {{ if isset $settings "line-style"   }}{{ $sLineStyle  = printf "%v" (index $settings "line-style")   }}{{ end }}
+    {{ if isset $settings "line-weight"  }}{{ $sLineWeight = printf "%v" (index $settings "line-weight")  }}{{ end }}
     {{ if isset $settings "units"        }}{{ $sStatsUnit  = printf "%v" $settings.units        }}{{ end }}
-    {{ if isset $settings "pin_color"    }}{{ $sPinColor   = printf "%v" $settings.pin_color    }}{{ end }}
+    {{ if isset $settings "pin-color"    }}{{ $sPinColor   = printf "%v" (index $settings "pin-color")    }}{{ end }}
     {{ if isset $settings "icon"         }}{{ $sPinIcon    = printf "%v" $settings.icon         }}{{ end }}
-    {{ if isset $settings "line_opacity" }}{{ $sOpacity    = printf "%v" $settings.line_opacity }}{{ end }}
+    {{ if isset $settings "line-opacity" }}{{ $sOpacity    = printf "%v" (index $settings "line-opacity") }}{{ end }}
     {{ if isset $settings "tiles"        }}{{ $sTileMode   = printf "%v" $settings.tiles        }}{{ end }}
 {{ end }}
 
@@ -97,23 +128,27 @@
 {{ if $scArrows }}{{ if or (eq $scArrows "no") (eq $scArrows "false") }}{{ $showArrows = false }}{{ end }}
 {{ else if $settings }}{{ if isset $settings "arrows" }}{{ if not $settings.arrows }}{{ $showArrows = false }}{{ end }}{{ end }}{{ end }}
 
+{{ $showCluster := false }}
+{{ if $scCluster }}{{ if or (eq $scCluster "yes") (eq $scCluster "true") }}{{ $showCluster = true }}{{ end }}
+{{ else if $settings }}{{ if isset $settings "cluster" }}{{ if $settings.cluster }}{{ $showCluster = true }}{{ end }}{{ end }}{{ end }}
+
 {{/* Optional center + zoom */}}
 {{ $centerLat := "" }}{{ $centerLon := "" }}{{ $zoom := "" }}
 {{ if $settings }}
-  {{ if isset $settings "center_lat" }}{{ $centerLat = printf "%v" $settings.center_lat }}{{ end }}
-  {{ if isset $settings "center_lon" }}{{ $centerLon = printf "%v" $settings.center_lon }}{{ end }}
+  {{ if isset $settings "center-lat" }}{{ $centerLat = printf "%v" (index $settings "center-lat") }}{{ end }}
+  {{ if isset $settings "center-lon" }}{{ $centerLon = printf "%v" (index $settings "center-lon") }}{{ end }}
   {{ if isset $settings "zoom"       }}{{ $zoom      = printf "%v" $settings.zoom       }}{{ end }}
 {{ end }}
 
 {{/* Hub settings */}}
 {{ $hubLat := "" }}{{ $hubLon := "" }}{{ $hubLabel := "Hub" }}{{ $hubIcon := "circle" }}{{ $hubColor := $lineColor }}{{ $hubAirport := "" }}
 {{ if $settings }}
-  {{ if isset $settings "hub_lat"     }}{{ $hubLat     = printf "%v" $settings.hub_lat     }}{{ end }}
-  {{ if isset $settings "hub_lon"     }}{{ $hubLon     = printf "%v" $settings.hub_lon     }}{{ end }}
-  {{ if isset $settings "hub_label"   }}{{ $hubLabel   = printf "%v" $settings.hub_label   }}{{ end }}
-  {{ if isset $settings "hub_icon"    }}{{ $hubIcon    = printf "%v" $settings.hub_icon    }}{{ end }}
-  {{ if isset $settings "hub_color"   }}{{ $hubColor   = printf "%v" $settings.hub_color   }}{{ end }}
-  {{ if isset $settings "hub_airport" }}{{ $hubAirport = printf "%v" $settings.hub_airport }}{{ end }}
+  {{ if isset $settings "hub-lat"     }}{{ $hubLat     = printf "%v" (index $settings "hub-lat")     }}{{ end }}
+  {{ if isset $settings "hub-lon"     }}{{ $hubLon     = printf "%v" (index $settings "hub-lon")     }}{{ end }}
+  {{ if isset $settings "hub-label"   }}{{ $hubLabel   = printf "%v" (index $settings "hub-label")   }}{{ end }}
+  {{ if isset $settings "hub-icon"    }}{{ $hubIcon    = printf "%v" (index $settings "hub-icon")    }}{{ end }}
+  {{ if isset $settings "hub-color"   }}{{ $hubColor   = printf "%v" (index $settings "hub-color")   }}{{ end }}
+  {{ if isset $settings "hub-airport" }}{{ $hubAirport = printf "%v" (index $settings "hub-airport") }}{{ end }}
 {{ end }}
 
 {{/* Map title / description */}}
@@ -149,8 +184,8 @@
 {{ if findRE "great-circle" $lineStyle }}{{ $needsGeodesic = true }}{{ end }}
 {{ if findRE "chevron" $lineStyle }}{{ $needsDecorator = true }}{{ end }}
 {{ range $sortedSegs }}
-  {{ if isset . "line_style" }}
-    {{ $ls := printf "%v" .line_style }}
+  {{ if isset . "line-style" }}
+    {{ $ls := printf "%v" (index . "line-style") }}
     {{ if findRE "great-circle" $ls }}{{ $needsGeodesic  = true }}{{ end }}
     {{ if findRE "chevron"      $ls }}{{ $needsDecorator = true }}{{ end }}
   {{ end }}
@@ -210,6 +245,8 @@
 {{/* ══ 10. MAP CONTAINER HTML ══ */}}
 {{ $mapRadius := "12px" }}
 {{ if $showGrid }}{{ $mapRadius = "12px 12px 0 0" }}{{ end }}
+
+<div class="travelpath-wrapper" id="{{ $mapID }}-wrapper">
 
 <p class="travelpath-sr-only">[Interactive travel map — visit the original post to explore it.]</p>
 <div id="{{ $mapID }}"
@@ -285,6 +322,17 @@
 </div>
 {{ end }}{{/* /showGrid */}}
 
+{{/* ══ 11b. MODAL POPUP (Colormap-style) ══ */}}
+<div class="travelpath-popup" hidden
+     role="dialog" aria-modal="true">
+  <div class="travelpath-popup__card">
+    <button class="travelpath-popup__close" aria-label="Close">&#215;</button>
+    <div class="travelpath-popup__body"></div>
+  </div>
+</div>
+
+</div>{{/* /travelpath-wrapper */}}
+
 {{/* ══ 12. PER-INSTANCE SCRIPT ══ */}}
 <script>
 (function() {
@@ -297,6 +345,7 @@ var SHOW_STATS         = {{ if $showStats }}true{{ else }}false{{ end }};
 var IMPERIAL           = {{ if or (eq $statsUnit "imperial") (eq $statsUnit "mi") }}true{{ else }}false{{ end }};
 var NEEDS_GEODESIC     = {{ if $needsGeodesic }}true{{ else }}false{{ end }};
 var NEEDS_DECORATOR    = {{ if $needsDecorator }}true{{ else }}false{{ end }};
+var CLUSTER            = {{ if $showCluster }}true{{ else }}false{{ end }};
 var BASEMAP            = {{ $basemap    | jsonify | safeJS }};
 var DEFAULT_LINE_STYLE = {{ $lineStyle  | jsonify | safeJS }};
 var DEFAULT_LINE_COLOR = {{ $lineColor  | jsonify | safeJS }};
@@ -327,10 +376,10 @@ var segments = [
   airport:     {{ if and (isset $seg "airport") $seg.airport }}{{ printf "%v" $seg.airport | jsonify | safeJS }}{{ else }}""{{ end }},
   icon:        {{ if and (isset $seg "icon") $seg.icon }}{{ printf "%v" $seg.icon | jsonify | safeJS }}{{ else }}""{{ end }},
   color:       {{ if and (isset $seg "color") $seg.color }}{{ printf "%v" $seg.color | jsonify | safeJS }}{{ else }}""{{ end }},
-  lineStyle:   {{ if and (isset $seg "line_style") $seg.line_style }}{{ printf "%v" $seg.line_style | jsonify | safeJS }}{{ else }}""{{ end }},
+  lineStyle:   {{ if isset $seg "line-style" }}{{ if index $seg "line-style" }}{{ printf "%v" (index $seg "line-style") | jsonify | safeJS }}{{ else }}""{{ end }}{{ else }}""{{ end }},
   description: {{ if and (isset $seg "description") $seg.description }}{{ printf "%v" $seg.description | jsonify | safeJS }}{{ else }}""{{ end }},
   url:         {{ if and (isset $seg "url") $seg.url }}{{ printf "%v" $seg.url | jsonify | safeJS }}{{ else }}""{{ end }},
-  urlType:     {{ if and (isset $seg "url_type") $seg.url_type }}{{ printf "%v" $seg.url_type | jsonify | safeJS }}{{ else }}""{{ end }},
+  urlType:     {{ if isset $seg "url-type" }}{{ if index $seg "url-type" }}{{ printf "%v" (index $seg "url-type") | jsonify | safeJS }}{{ else }}""{{ end }}{{ else }}""{{ end }},
   legend:      {{ if and (isset $seg "legend") $seg.legend }}{{ printf "%v" $seg.legend | jsonify | safeJS }}{{ else }}""{{ end }}
 }{{ if lt $i (sub (len $sortedSegs) 1) }},{{ end }}
 {{ end -}}
@@ -609,51 +658,6 @@ function drawLine(map, from, to, seg, segIdx) {
 }
 
 /* ── Icon creation (uses shared shapes from Maps/Tracks) ── */
-var iconCache = {};
-function createIcon(shapeName, color) {
-  var key = shapeName + '|' + color;
-  if (iconCache[key]) return iconCache[key];
-  var S = window.__trackShapes || window.__mapShapes || {};
-  var def = S[shapeName];
-  var icon;
-
-  if (def && typeof def.svg === 'function') {
-    var opts = {
-      iconUrl: 'data:image/svg+xml;base64,' + btoa(def.svg(color)),
-      iconSize: [def.w, def.h],
-      iconAnchor: def.anchor,
-      popupAnchor: def.popup || [0, -18]
-    };
-    if (def.shadow) {
-      opts.shadowUrl = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
-      opts.shadowSize = def.shadowSize || [41, 41];
-      opts.shadowAnchor = def.shadowAnchor || [12, 41];
-    }
-    icon = L.icon(opts);
-  } else if (/^fa-/.test(shapeName)) {
-    if (typeof loadFontAwesome === 'function') loadFontAwesome();
-    else if (window.__faLoaded === undefined) {
-      window.__faLoaded = true;
-      var css = document.createElement('link');
-      css.rel = 'stylesheet';
-      css.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css';
-      document.head.appendChild(css);
-    }
-    icon = L.divIcon({
-      html: '<i class="fa-solid ' + shapeName + '" style="font-size:20px;color:' + color + ';"></i>',
-      className: '', iconSize: [28,28], iconAnchor: [14,14], popupAnchor: [0,-18]
-    });
-  } else {
-    /* Emoji / unicode fallback */
-    icon = L.divIcon({
-      html: '<span style="font-size:22px;line-height:1;">' + shapeName + '</span>',
-      className: '', iconSize: [26,26], iconAnchor: [13,13], popupAnchor: [0,-18]
-    });
-  }
-  iconCache[key] = icon;
-  return icon;
-}
-
 /* ── Icon "none" detection — icon: none / false / no all suppress pins ── */
 function isNoPin(iconName) {
   if (!iconName) return false;
@@ -661,9 +665,14 @@ function isNoPin(iconName) {
   return v === 'none' || v === 'false' || v === 'no';
 }
 
-function placePin(lat, lon, iconName, color, popupHTML) {
-  var icon = createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
-  var marker = L.marker([lat, lon], { icon: icon }).addTo(_map);
+function placePin(lat, lon, iconName, color, popupHTML, target) {
+  var icon = window.__createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
+  var marker = L.marker([lat, lon], { icon: icon });
+  if (target && typeof target.addLayer === 'function') {
+    target.addLayer(marker);
+  } else {
+    marker.addTo(_map);
+  }
   marker.bindPopup(popupHTML, { maxWidth: 300, autoPanPaddingTopLeft: [50,10] });
   return marker;
 }
@@ -672,10 +681,37 @@ function placePin(lat, lon, iconName, color, popupHTML) {
 var _activeSegIdx = null;
 var _activeLegend = null;
 
+/* Modal popup (Colormap-style) for legend/hub/stats tiles */
+function openModal(html) {
+  var wrapper = document.getElementById(MAP_ID).closest('.travelpath-wrapper') || document.getElementById(MAP_ID).parentNode;
+  var modal = wrapper.querySelector('.travelpath-popup');
+  if (!modal) return;
+  var card = modal.querySelector('.travelpath-popup__card');
+  var body = modal.querySelector('.travelpath-popup__body');
+  if (body) body.innerHTML = html;
+  modal.hidden = false;
+  wrapper.style.zIndex = '1';
+  var closeBtn = modal.querySelector('.travelpath-popup__close');
+  if (closeBtn) closeBtn.focus();
+  document.body.style.overflow = 'hidden';
+  /* Wire media triggers inside modal */
+  wireMediaClicks(modal);
+}
+
+function closeModal() {
+  var wrapper = document.getElementById(MAP_ID).closest('.travelpath-wrapper') || document.getElementById(MAP_ID).parentNode;
+  var modal = wrapper.querySelector('.travelpath-popup');
+  if (!modal) return;
+  modal.hidden = true;
+  wrapper.style.zIndex = '';
+  document.body.style.overflow = '';
+}
+
 function onSegment(btn) {
   var idx = parseInt(btn.getAttribute('data-idx'), 10);
   if (_activeSegIdx === idx && _activeLegend === null) {
     clearHighlight(); _activeSegIdx = null;
+    closeModal();
     if (_map) _map.closePopup(); return;
   }
   _activeSegIdx = idx; _activeLegend = null;
@@ -683,7 +719,7 @@ function onSegment(btn) {
   var seg = segments[idx];
   if (seg && _map) {
     _map.panTo([seg.lat, seg.lon], { animate: true, duration: 0.4 });
-    showPopup([seg.lat, seg.lon], buildSegmentHTML(seg));
+    openModal(buildSegmentHTML(seg));
   }
 }
 
@@ -691,23 +727,23 @@ function onLegend(btn) {
   var name = btn.getAttribute('data-legend');
   if (_activeLegend === name) {
     clearHighlight(); _activeLegend = null;
-    if (_map) _map.closePopup(); return;
+    closeModal(); return;
   }
   _activeLegend = name; _activeSegIdx = null;
   highlightLegend(name);
   var members = [];
   try { members = JSON.parse(btn.getAttribute('data-keys') || '[]'); } catch(e) {}
-  if (_map) showPopup(_map.getCenter(), buildLegendHTML(name, members));
+  openModal(buildLegendHTML(name, members));
 }
 
 function onHub() {
   clearHighlight(); _activeLegend = null; _activeSegIdx = null;
-  if (_map && HUB) showPopup([HUB.lat, HUB.lon], buildHubHTML());
+  if (HUB) openModal(buildHubHTML());
 }
 
 function onStats() {
   clearHighlight(); _activeLegend = null; _activeSegIdx = null;
-  if (_map) showPopup(_map.getCenter(), buildStatsHTML());
+  openModal(buildStatsHTML());
 }
 
 /* ── Media click interception inside Leaflet popups ── */
@@ -777,12 +813,6 @@ function initTravelpath() {
     }).addTo(_map);
   }
 
-  /* Font Awesome on demand */
-  var needsFA = (DEFAULT_PIN_ICON.indexOf('fa-') === 0);
-  if (!needsFA && HUB && HUB.icon) needsFA = HUB.icon.indexOf('fa-') === 0;
-  if (!needsFA) segments.forEach(function(s) { if (s.icon && s.icon.indexOf('fa-') === 0) needsFA = true; });
-  if (needsFA && typeof loadFontAwesome === 'function') loadFontAwesome();
-
   /* Compute distances */
   computeDistances();
 
@@ -817,9 +847,33 @@ function initTravelpath() {
     }
   }
 
+  /* Cluster group (optional) */
+  var clusterGroup = null;
+  if (CLUSTER && typeof L.markerClusterGroup === 'function') {
+    clusterGroup = L.markerClusterGroup({
+      iconCreateFunction: function(cluster) {
+        var count = cluster.getChildCount();
+        var size = count < 10 ? 34 : count < 100 ? 40 : 46;
+        return L.divIcon({
+          html: '<span>' + count + '</span>',
+          className: 'map-cluster',
+          iconSize: [size, size]
+        });
+      },
+      maxClusterRadius: 45,
+      zoomToBoundsOnClick: false,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false
+    });
+    clusterGroup.on('clusterclick', function(e) {
+      e.layer.zoomToBounds({ padding: [50, 50] });
+    });
+  }
+  var pinTarget = clusterGroup || _map;
+
   /* Hub pin */
   if (IS_HUB && HUB && !isNoPin(HUB.icon)) {
-    placePin(HUB.lat, HUB.lon, HUB.icon, HUB.color, buildHubHTML());
+    placePin(HUB.lat, HUB.lon, HUB.icon, HUB.color, buildHubHTML(), pinTarget);
   }
 
   /* Segment pins — resolved icon of "none"/"false"/"no" suppresses pin */
@@ -828,8 +882,10 @@ function initTravelpath() {
     if (isNoPin(resolvedIcon)) return;
     placePin(seg.lat, seg.lon, resolvedIcon,
       seg.color || DEFAULT_PIN_COLOR,
-      buildSegmentHTML(seg));
+      buildSegmentHTML(seg), pinTarget);
   });
+
+  if (clusterGroup) _map.addLayer(clusterGroup);
 
   /* Fit view */
   if (CENTER && ZOOM_LEVEL) {
@@ -841,13 +897,33 @@ function initTravelpath() {
     else _map.setView([20, 0], 2);
   }
 
-  /* Map background click → clear */
+  /* Map background click → clear highlight and close modal */
   _map.on('click', function() {
     clearHighlight(); _activeLegend = null; _activeSegIdx = null;
+    closeModal();
   });
 
   /* Wire media click interception */
   wireMediaClicks(_map.getContainer());
+
+  /* Modal popup close handlers */
+  var wrapper = document.getElementById(MAP_ID + '-wrapper');
+  if (wrapper) {
+    var modal = wrapper.querySelector('.travelpath-popup');
+    if (modal) {
+      var closeBtn = modal.querySelector('.travelpath-popup__close');
+      if (closeBtn) closeBtn.addEventListener('click', function() { closeModal(); });
+      modal.addEventListener('click', function(e) { if (e.target === modal) closeModal(); });
+      modal.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' || e.key === 'Esc') { closeModal(); return; }
+        if (e.key !== 'Tab') return;
+        var focusable = modal.querySelectorAll('button,[href],[tabindex]:not([tabindex="-1"])');
+        var first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
+        else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
+      });
+    }
+  }
 
   /* Register instance for tile dispatcher */
   window.__tpInstances = window.__tpInstances || {};
@@ -857,16 +933,26 @@ function initTravelpath() {
 }
 
 /* ── Loading chain ── */
+function loadCluster(cb) {
+  if (typeof L.markerClusterGroup === 'function') { cb(); return; }
+  var css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css';
+  document.head.appendChild(css);
+  var js = document.createElement('script');
+  js.src = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';
+  js.onload = cb;
+  js.onerror = function() { console.warn('Travelpath: markercluster failed to load'); cb(); };
+  document.head.appendChild(js);
+}
+
 function boot() {
-  if (NEEDS_GEODESIC && NEEDS_DECORATOR) {
-    window.__tpLoadGeodesic(function() { window.__tpLoadDecorator(initTravelpath); });
-  } else if (NEEDS_GEODESIC) {
-    window.__tpLoadGeodesic(initTravelpath);
-  } else if (NEEDS_DECORATOR) {
-    window.__tpLoadDecorator(initTravelpath);
-  } else {
-    initTravelpath();
-  }
+  /* Build dependency chain: leaflet → (geodesic?) → (decorator?) → (cluster?) → init */
+  var chain = initTravelpath;
+  if (CLUSTER) { var _next = chain; chain = function() { loadCluster(_next); }; }
+  if (NEEDS_DECORATOR) { var _next2 = chain; chain = function() { window.__tpLoadDecorator(_next2); }; }
+  if (NEEDS_GEODESIC) { var _next3 = chain; chain = function() { window.__tpLoadGeodesic(_next3); }; }
+  chain();
 }
 
 window.__tpEnsureLeaflet(boot);
