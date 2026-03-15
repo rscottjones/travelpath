@@ -8,37 +8,67 @@
     {{< travelpath "iceland" >}}
     {{< travelpath map="japan-2023" >}}
     {{< travelpath map="flights" height="600px" basemap="positron" >}}
+    {{< travelpath map="flights-from-phx" segments="flights-from-phx-2024" >}}
 */}}
 
-{{/* ══ 1. RESOLVE MAP NAME ══ */}}
+{{/* ══ 1. RESOLVE MAP NAME + OPTIONAL SEGMENTS OVERRIDE ══ */}}
 {{ $mapName := "" }}
 {{ if .IsNamedParams }}{{ $mapName = .Get "map" }}{{ else }}{{ $mapName = .Get 0 }}{{ end }}
 {{ if not $mapName }}<!-- travelpath: no map name -->{{ else }}
+{{/* segments param overrides the derived "{map}-segments" key.
+     Accepts comma-separated list to composite multiple segment files. */}}
+{{ $segmentsParam := "" }}
+{{ if .IsNamedParams }}{{ with .Get "segments" }}{{ $segmentsParam = . }}{{ end }}{{ end }}
 
 {{/* ══ 2. LOAD DATA FILES ══ */}}
 {{ $settings := index .Site.Data "travelpath" $mapName }}
-{{ $segKey   := printf "%s-segments" $mapName }}
-{{ $rawSegs  := index .Site.Data "travelpath" $segKey }}
+{{ $rawSegs  := slice }}
+{{ if $segmentsParam }}
+  {{/* Load each comma-separated segment file (replace mode) */}}
+  {{ $keys := split $segmentsParam "," }}
+  {{ range $keys }}
+    {{ $k := trim . " " }}
+    {{ if $k }}
+      {{ $fileSegs := index $.Site.Data "travelpath" $k }}
+      {{ if $fileSegs }}
+        {{ range $fileSegs }}
+          {{ $rawSegs = $rawSegs | append . }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+{{ else }}
+  {{/* Default: load {map}-segments */}}
+  {{ $segKey := printf "%s-segments" $mapName }}
+  {{ $rawSegs = index .Site.Data "travelpath" $segKey }}
+{{ end }}
 
 {{ if and (not $settings) (not $rawSegs) }}
 <!-- travelpath: no data for "{{ $mapName }}" -->
 {{ else }}
 
-{{/* ══ 3. DETECT MODE ══ */}}
-{{ $isHub := false }}
+{{/* ══ 3. DETECT MODE — uses Scratch to avoid Hugo 0.91 variable scoping issues ══ */}}
+{{ .Page.Scratch.Set "tpIsHub" false }}
 {{ if $settings }}
   {{ if and (isset $settings "hub_lat") (isset $settings "hub_lon") }}
-    {{ if and $settings.hub_lat $settings.hub_lon }}{{ $isHub = true }}{{ end }}
+    {{ if and $settings.hub_lat $settings.hub_lon }}
+      {{ .Page.Scratch.Set "tpIsHub" true }}
+    {{ end }}
   {{ end }}
-  {{ if not $isHub }}
-    {{ if isset $settings "hub_airport" }}{{ if $settings.hub_airport }}{{ $isHub = true }}{{ end }}{{ end }}
+  {{ if not (.Page.Scratch.Get "tpIsHub") }}
+    {{ if isset $settings "hub_airport" }}
+      {{ if $settings.hub_airport }}
+        {{ .Page.Scratch.Set "tpIsHub" true }}
+      {{ end }}
+    {{ end }}
   {{ end }}
 {{ end }}
+{{ $isHub := .Page.Scratch.Get "tpIsHub" }}
 
 {{/* ══ 4. RESOLVE PARAMETERS (shortcode > settings > default) ══ */}}
 {{ $scHeight     := "" }}{{ $scBasemap := "" }}{{ $scLineColor := "" }}{{ $scLineStyle := "" }}
 {{ $scLineWeight := "" }}{{ $scStats   := "" }}{{ $scStatsUnit := "" }}{{ $scGrid      := "" }}
-{{ $scIcon       := "" }}{{ $scArrows  := "" }}
+{{ $scIcon       := "" }}{{ $scArrows  := "" }}{{ $scCluster := "" }}
 {{ if .IsNamedParams }}
   {{ with .Get "height"      }}{{ $scHeight     = . }}{{ end }}
   {{ with .Get "basemap"     }}{{ $scBasemap    = . }}{{ end }}
@@ -50,6 +80,7 @@
   {{ with .Get "grid"        }}{{ $scGrid       = . }}{{ end }}
   {{ with .Get "icon"        }}{{ $scIcon       = . }}{{ end }}
   {{ with .Get "arrows"      }}{{ $scArrows     = . }}{{ end }}
+  {{ with .Get "cluster"     }}{{ $scCluster    = . }}{{ end }}
 {{ end }}
 
 {{/* Settings file values */}}
@@ -96,6 +127,10 @@
 {{ $showArrows := true }}
 {{ if $scArrows }}{{ if or (eq $scArrows "no") (eq $scArrows "false") }}{{ $showArrows = false }}{{ end }}
 {{ else if $settings }}{{ if isset $settings "arrows" }}{{ if not $settings.arrows }}{{ $showArrows = false }}{{ end }}{{ end }}{{ end }}
+
+{{ $showCluster := false }}
+{{ if $scCluster }}{{ if or (eq $scCluster "yes") (eq $scCluster "true") }}{{ $showCluster = true }}{{ end }}
+{{ else if $settings }}{{ if isset $settings "cluster" }}{{ if $settings.cluster }}{{ $showCluster = true }}{{ end }}{{ end }}{{ end }}
 
 {{/* Optional center + zoom */}}
 {{ $centerLat := "" }}{{ $centerLon := "" }}{{ $zoom := "" }}
@@ -297,6 +332,7 @@ var SHOW_STATS         = {{ if $showStats }}true{{ else }}false{{ end }};
 var IMPERIAL           = {{ if or (eq $statsUnit "imperial") (eq $statsUnit "mi") }}true{{ else }}false{{ end }};
 var NEEDS_GEODESIC     = {{ if $needsGeodesic }}true{{ else }}false{{ end }};
 var NEEDS_DECORATOR    = {{ if $needsDecorator }}true{{ else }}false{{ end }};
+var CLUSTER            = {{ if $showCluster }}true{{ else }}false{{ end }};
 var BASEMAP            = {{ $basemap    | jsonify | safeJS }};
 var DEFAULT_LINE_STYLE = {{ $lineStyle  | jsonify | safeJS }};
 var DEFAULT_LINE_COLOR = {{ $lineColor  | jsonify | safeJS }};
@@ -609,51 +645,6 @@ function drawLine(map, from, to, seg, segIdx) {
 }
 
 /* ── Icon creation (uses shared shapes from Maps/Tracks) ── */
-var iconCache = {};
-function createIcon(shapeName, color) {
-  var key = shapeName + '|' + color;
-  if (iconCache[key]) return iconCache[key];
-  var S = window.__trackShapes || window.__mapShapes || {};
-  var def = S[shapeName];
-  var icon;
-
-  if (def && typeof def.svg === 'function') {
-    var opts = {
-      iconUrl: 'data:image/svg+xml;base64,' + btoa(def.svg(color)),
-      iconSize: [def.w, def.h],
-      iconAnchor: def.anchor,
-      popupAnchor: def.popup || [0, -18]
-    };
-    if (def.shadow) {
-      opts.shadowUrl = 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
-      opts.shadowSize = def.shadowSize || [41, 41];
-      opts.shadowAnchor = def.shadowAnchor || [12, 41];
-    }
-    icon = L.icon(opts);
-  } else if (/^fa-/.test(shapeName)) {
-    if (typeof loadFontAwesome === 'function') loadFontAwesome();
-    else if (window.__faLoaded === undefined) {
-      window.__faLoaded = true;
-      var css = document.createElement('link');
-      css.rel = 'stylesheet';
-      css.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css';
-      document.head.appendChild(css);
-    }
-    icon = L.divIcon({
-      html: '<i class="fa-solid ' + shapeName + '" style="font-size:20px;color:' + color + ';"></i>',
-      className: '', iconSize: [28,28], iconAnchor: [14,14], popupAnchor: [0,-18]
-    });
-  } else {
-    /* Emoji / unicode fallback */
-    icon = L.divIcon({
-      html: '<span style="font-size:22px;line-height:1;">' + shapeName + '</span>',
-      className: '', iconSize: [26,26], iconAnchor: [13,13], popupAnchor: [0,-18]
-    });
-  }
-  iconCache[key] = icon;
-  return icon;
-}
-
 /* ── Icon "none" detection — icon: none / false / no all suppress pins ── */
 function isNoPin(iconName) {
   if (!iconName) return false;
@@ -661,9 +652,14 @@ function isNoPin(iconName) {
   return v === 'none' || v === 'false' || v === 'no';
 }
 
-function placePin(lat, lon, iconName, color, popupHTML) {
-  var icon = createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
-  var marker = L.marker([lat, lon], { icon: icon }).addTo(_map);
+function placePin(lat, lon, iconName, color, popupHTML, target) {
+  var icon = window.__createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
+  var marker = L.marker([lat, lon], { icon: icon });
+  if (target && typeof target.addLayer === 'function') {
+    target.addLayer(marker);
+  } else {
+    marker.addTo(_map);
+  }
   marker.bindPopup(popupHTML, { maxWidth: 300, autoPanPaddingTopLeft: [50,10] });
   return marker;
 }
@@ -777,12 +773,6 @@ function initTravelpath() {
     }).addTo(_map);
   }
 
-  /* Font Awesome on demand */
-  var needsFA = (DEFAULT_PIN_ICON.indexOf('fa-') === 0);
-  if (!needsFA && HUB && HUB.icon) needsFA = HUB.icon.indexOf('fa-') === 0;
-  if (!needsFA) segments.forEach(function(s) { if (s.icon && s.icon.indexOf('fa-') === 0) needsFA = true; });
-  if (needsFA && typeof loadFontAwesome === 'function') loadFontAwesome();
-
   /* Compute distances */
   computeDistances();
 
@@ -817,9 +807,33 @@ function initTravelpath() {
     }
   }
 
+  /* Cluster group (optional) */
+  var clusterGroup = null;
+  if (CLUSTER && typeof L.markerClusterGroup === 'function') {
+    clusterGroup = L.markerClusterGroup({
+      iconCreateFunction: function(cluster) {
+        var count = cluster.getChildCount();
+        var size = count < 10 ? 34 : count < 100 ? 40 : 46;
+        return L.divIcon({
+          html: '<span>' + count + '</span>',
+          className: 'map-cluster',
+          iconSize: [size, size]
+        });
+      },
+      maxClusterRadius: 45,
+      zoomToBoundsOnClick: false,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false
+    });
+    clusterGroup.on('clusterclick', function(e) {
+      e.layer.zoomToBounds({ padding: [50, 50] });
+    });
+  }
+  var pinTarget = clusterGroup || _map;
+
   /* Hub pin */
   if (IS_HUB && HUB && !isNoPin(HUB.icon)) {
-    placePin(HUB.lat, HUB.lon, HUB.icon, HUB.color, buildHubHTML());
+    placePin(HUB.lat, HUB.lon, HUB.icon, HUB.color, buildHubHTML(), pinTarget);
   }
 
   /* Segment pins — resolved icon of "none"/"false"/"no" suppresses pin */
@@ -828,8 +842,10 @@ function initTravelpath() {
     if (isNoPin(resolvedIcon)) return;
     placePin(seg.lat, seg.lon, resolvedIcon,
       seg.color || DEFAULT_PIN_COLOR,
-      buildSegmentHTML(seg));
+      buildSegmentHTML(seg), pinTarget);
   });
+
+  if (clusterGroup) _map.addLayer(clusterGroup);
 
   /* Fit view */
   if (CENTER && ZOOM_LEVEL) {
@@ -857,16 +873,26 @@ function initTravelpath() {
 }
 
 /* ── Loading chain ── */
+function loadCluster(cb) {
+  if (typeof L.markerClusterGroup === 'function') { cb(); return; }
+  var css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css';
+  document.head.appendChild(css);
+  var js = document.createElement('script');
+  js.src = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';
+  js.onload = cb;
+  js.onerror = function() { console.warn('Travelpath: markercluster failed to load'); cb(); };
+  document.head.appendChild(js);
+}
+
 function boot() {
-  if (NEEDS_GEODESIC && NEEDS_DECORATOR) {
-    window.__tpLoadGeodesic(function() { window.__tpLoadDecorator(initTravelpath); });
-  } else if (NEEDS_GEODESIC) {
-    window.__tpLoadGeodesic(initTravelpath);
-  } else if (NEEDS_DECORATOR) {
-    window.__tpLoadDecorator(initTravelpath);
-  } else {
-    initTravelpath();
-  }
+  /* Build dependency chain: leaflet → (geodesic?) → (decorator?) → (cluster?) → init */
+  var chain = initTravelpath;
+  if (CLUSTER) { var _next = chain; chain = function() { loadCluster(_next); }; }
+  if (NEEDS_DECORATOR) { var _next2 = chain; chain = function() { window.__tpLoadDecorator(_next2); }; }
+  if (NEEDS_GEODESIC) { var _next3 = chain; chain = function() { window.__tpLoadGeodesic(_next3); }; }
+  chain();
 }
 
 window.__tpEnsureLeaflet(boot);
