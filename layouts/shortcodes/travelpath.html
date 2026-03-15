@@ -623,6 +623,40 @@ function clearHighlight() {
 }
 
 /* ── Line drawing ── */
+/* ── Great-circle arc interpolation (SLERP) ──
+   Used instead of L.Geodesic for segments with shifted longitudes,
+   since L.Geodesic re-normalizes coordinates to [-180,180] internally.
+   Input/output: [lat, lon] in degrees. */
+function greatCircleArc(from, to, n) {
+  var RAD = Math.PI / 180, DEG = 180 / Math.PI;
+  var lat1 = from[0] * RAD, lon1 = from[1] * RAD;
+  var lat2 = to[0] * RAD,   lon2 = to[1] * RAD;
+  var d = Math.acos(Math.min(1, Math.max(-1,
+    Math.sin(lat1) * Math.sin(lat2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1)
+  )));
+  if (d < 1e-10) return [from, to];
+  var sinD = Math.sin(d);
+  var pts = [];
+  for (var i = 0; i <= n; i++) {
+    var t = i / n;
+    var A = Math.sin((1 - t) * d) / sinD;
+    var B = Math.sin(t * d) / sinD;
+    var x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+    var y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+    var z = A * Math.sin(lat1) + B * Math.sin(lat2);
+    var lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * DEG;
+    var lon = Math.atan2(y, x) * DEG;
+    /* Normalize each arc point to the same world copy as CENTER */
+    if (CENTER) {
+      while (lon - CENTER[1] > 180)  lon -= 360;
+      while (lon - CENTER[1] < -180) lon += 360;
+    }
+    pts.push([lat, lon]);
+  }
+  return pts;
+}
+
 function drawLine(map, from, to, seg, segIdx) {
   var st      = parseStyle(seg.lineStyle);
   var color   = seg.color || DEFAULT_LINE_COLOR;
@@ -632,7 +666,17 @@ function drawLine(map, from, to, seg, segIdx) {
   var opts = { color: color, weight: weight, opacity: opacity, interactive: false, lineJoin: 'round', lineCap: 'round' };
   if (st.dashArray) opts.dashArray = st.dashArray;
 
+  /* If either endpoint was shifted outside [-180,180] by the normalization
+     pass, L.Geodesic would re-normalize it and clip at the dateline.
+     Use our own SLERP arc + L.polyline instead — polyline renders
+     exactly the coordinates given without re-normalizing. */
+  var shifted = Math.abs(from[1]) > 180 || Math.abs(to[1]) > 180;
+
   function makeLine(o) {
+    if (shifted && st.geodesic) {
+      /* Compute great-circle arc ourselves, each point normalized */
+      return L.polyline(greatCircleArc(from, to, 100), o);
+    }
     return (st.geodesic && typeof L.Geodesic !== 'undefined')
          ? new L.Geodesic([[from, to]], o)
          : L.polyline([from, to], o);
@@ -811,8 +855,26 @@ function initTravelpath() {
     }).addTo(_map);
   }
 
-  /* Compute distances */
+  /* Compute distances (uses real geographic coordinates) */
   computeDistances();
+
+  /* Normalize longitudes to the visible world copy when center-lon is set.
+     Shifts all coordinates by ±360° so everything renders in the same
+     Leaflet world copy. This prevents antimeridian clipping — e.g., NZ
+     at lon 174 becomes lon -186 when centered at -160, so a geodesic
+     arc to LAX (-118) draws continuously without crossing ±180°.
+     Maps without center-lon are unaffected. */
+  if (CENTER) {
+    var _cLon = CENTER[1];
+    segments.forEach(function(s) {
+      while (s.lon - _cLon > 180)  s.lon -= 360;
+      while (s.lon - _cLon < -180) s.lon += 360;
+    });
+    if (IS_HUB && HUB) {
+      while (HUB.lon - _cLon > 180)  HUB.lon -= 360;
+      while (HUB.lon - _cLon < -180) HUB.lon += 360;
+    }
+  }
 
   /* Populate stats tile */
   if (SHOW_STATS) {
