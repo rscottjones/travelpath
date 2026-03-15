@@ -637,6 +637,8 @@ function greatCircleArc(from, to, n) {
   )));
   if (d < 1e-10) return [from, to];
   var sinD = Math.sin(d);
+  /* Midpoint of endpoints (already in same world copy) as normalization reference */
+  var refLon = (from[1] + to[1]) / 2;
   var pts = [];
   for (var i = 0; i <= n; i++) {
     var t = i / n;
@@ -647,11 +649,9 @@ function greatCircleArc(from, to, n) {
     var z = A * Math.sin(lat1) + B * Math.sin(lat2);
     var lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * DEG;
     var lon = Math.atan2(y, x) * DEG;
-    /* Normalize each arc point to the same world copy as CENTER */
-    if (CENTER) {
-      while (lon - CENTER[1] > 180)  lon -= 360;
-      while (lon - CENTER[1] < -180) lon += 360;
-    }
+    /* Keep arc points in the same world copy as the endpoints */
+    while (lon - refLon > 180)  lon -= 360;
+    while (lon - refLon < -180) lon += 360;
     pts.push([lat, lon]);
   }
   return pts;
@@ -858,23 +858,61 @@ function initTravelpath() {
   /* Compute distances (uses real geographic coordinates) */
   computeDistances();
 
-  /* Normalize longitudes to the visible world copy when center-lon is set.
-     Shifts all coordinates by ±360° so everything renders in the same
-     Leaflet world copy. This prevents antimeridian clipping — e.g., NZ
-     at lon 174 becomes lon -186 when centered at -160, so a geodesic
-     arc to LAX (-118) draws continuously without crossing ±180°.
-     Maps without center-lon are unaffected. */
-  if (CENTER) {
-    var _cLon = CENTER[1];
+  /* ── Antimeridian handling ──
+     Detect if any route segment crosses the ±180° line. If so, compute
+     an optimal center longitude (or use the user's center-lon if set)
+     and shift all coordinates into the same Leaflet world copy.
+     Maps that don't cross the antimeridian skip this entirely. */
+  var _needsShift = false;
+  (function() {
+    /* Check if any segment pair crosses the antimeridian */
+    if (IS_HUB && HUB) {
+      segments.forEach(function(s) {
+        if (Math.abs(s.lon - HUB.lon) > 180) _needsShift = true;
+      });
+    } else {
+      for (var i = 0; i < segments.length - 1; i++) {
+        if (Math.abs(segments[i+1].lon - segments[i].lon) > 180) { _needsShift = true; break; }
+      }
+    }
+    if (!_needsShift) return;
+
+    /* Determine center longitude: user override or auto-compute */
+    var cLon;
+    if (CENTER) {
+      cLon = CENTER[1];
+    } else {
+      /* Collect all longitudes, find the largest gap, center opposite it */
+      var lons = segments.map(function(s) { return s.lon; });
+      if (IS_HUB && HUB) lons.push(HUB.lon);
+      lons.sort(function(a, b) { return a - b; });
+      var maxGap = 0, gapStart = 0;
+      for (var j = 0; j < lons.length - 1; j++) {
+        var g = lons[j + 1] - lons[j];
+        if (g > maxGap) { maxGap = g; gapStart = j; }
+      }
+      /* Wrap-around gap (from last to first + 360) */
+      var wrapGap = (lons[0] + 360) - lons[lons.length - 1];
+      if (wrapGap > maxGap) {
+        /* Center is midpoint of the data arc (opposite the gap) */
+        cLon = (lons[lons.length - 1] + lons[0]) / 2;
+      } else {
+        /* Center is opposite the largest internal gap */
+        var gapMid = (lons[gapStart] + lons[gapStart + 1]) / 2;
+        cLon = gapMid > 0 ? gapMid - 180 : gapMid + 180;
+      }
+    }
+
+    /* Shift all coordinates to the center's world copy */
     segments.forEach(function(s) {
-      while (s.lon - _cLon > 180)  s.lon -= 360;
-      while (s.lon - _cLon < -180) s.lon += 360;
+      while (s.lon - cLon > 180)  s.lon -= 360;
+      while (s.lon - cLon < -180) s.lon += 360;
     });
     if (IS_HUB && HUB) {
-      while (HUB.lon - _cLon > 180)  HUB.lon -= 360;
-      while (HUB.lon - _cLon < -180) HUB.lon += 360;
+      while (HUB.lon - cLon > 180)  HUB.lon -= 360;
+      while (HUB.lon - cLon < -180) HUB.lon += 360;
     }
-  }
+  })();
 
   /* Populate stats tile */
   if (SHOW_STATS) {
