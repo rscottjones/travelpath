@@ -377,7 +377,8 @@ var segments = [
   icon:        {{ if and (isset $seg "icon") $seg.icon }}{{ printf "%v" $seg.icon | jsonify | safeJS }}{{ else }}""{{ end }},
   color:       {{ if and (isset $seg "color") $seg.color }}{{ printf "%v" $seg.color | jsonify | safeJS }}{{ else }}""{{ end }},
   lineStyle:   {{ if isset $seg "line-style" }}{{ if index $seg "line-style" }}{{ printf "%v" (index $seg "line-style") | jsonify | safeJS }}{{ else }}""{{ end }}{{ else }}""{{ end }},
-  description: {{ if and (isset $seg "description") $seg.description }}{{ printf "%v" $seg.description | jsonify | safeJS }}{{ else }}""{{ end }},
+  note:        {{ if and (isset $seg "note") $seg.note }}{{ printf "%v" $seg.note | jsonify | safeJS }}{{ else }}""{{ end }},
+  short:       {{ if and (isset $seg "short") $seg.short }}{{ printf "%v" $seg.short | jsonify | safeJS }}{{ else }}""{{ end }},
   url:         {{ if and (isset $seg "url") $seg.url }}{{ printf "%v" $seg.url | jsonify | safeJS }}{{ else }}""{{ end }},
   urlType:     {{ if isset $seg "url-type" }}{{ if index $seg "url-type" }}{{ printf "%v" (index $seg "url-type") | jsonify | safeJS }}{{ else }}""{{ end }}{{ else }}""{{ end }},
   legend:      {{ if and (isset $seg "legend") $seg.legend }}{{ printf "%v" $seg.legend | jsonify | safeJS }}{{ else }}""{{ end }}
@@ -487,6 +488,12 @@ function esc(v) {
 function buildSegmentHTML(seg) {
   var h = '<div style="font-family:sans-serif;padding:5px;min-width:160px;max-width:260px;">';
 
+  /* Abbreviation line — short field, or airport code, shown above title */
+  var abbr = seg.short || (seg.airport ? seg.airport.replace(/[() "']/g,'').toUpperCase() : '');
+  if (abbr) {
+    h += '<p class="travelpath-popup-key" style="margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;">'+esc(abbr)+'</p>';
+  }
+
   /* Parse URL — check for comma-separated image gallery */
   var urls = seg.url ? seg.url.split(',').map(function(u) { return u.trim(); }).filter(Boolean) : [];
   var allImages = urls.length > 1 && urls.every(function(u) { return detectType(u, '') === 'image'; });
@@ -495,7 +502,6 @@ function buildSegmentHTML(seg) {
 
   /* Title */
   if (allImages) {
-    /* Multi-image gallery — title opens lightbox, data-gallery carries the array */
     var gal = urls.map(function(u) { return {url:u, name:seg.label}; });
     var galJson = JSON.stringify(gal).replace(/'/g,'&#39;');
     h += '<h3 style="margin:0;font-size:16px;"><a href="'+esc(urls[0])+'" class="map-lightbox-trigger" data-gallery=\''+galJson+'\' style="color:#007bff;">'+esc(seg.label)+'</a></h3>';
@@ -509,7 +515,8 @@ function buildSegmentHTML(seg) {
   }
 
   /* Description */
-  if (seg.description) h += '<p class="travelpath-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(seg.description)+'</p>';
+  if (seg.note) h += '<p class="travelpath-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(seg.note)+'</p>';
+
 
   /* Audio player */
   if (effectiveUrl && t==='audio')
@@ -534,12 +541,34 @@ function buildSegmentHTML(seg) {
 }
 
 function buildLegendHTML(label, members) {
+  /* Calculate total distance for segments in this legend group */
+  var groupDist = 0;
+  var groupCount = 0;
+  segments.forEach(function(s) {
+    if (s.legend === label) {
+      groupCount++;
+      if (IS_HUB && HUB) {
+        groupDist += legDist[s.idx] || 0;
+      } else {
+        /* Outgoing model: this segment's distance is the leg FROM it to the next */
+        if (s.idx < segments.length - 1) groupDist += legDist[s.idx + 1] || 0;
+      }
+    }
+  });
+
   var h = '<div style="font-family:sans-serif;padding:5px;min-width:160px;">';
   h += '<h3 style="margin:0;font-size:16px;">'+esc(label)+'</h3>';
   h += '<div class="travelpath-popup-divider"></div>';
   h += '<ul class="travelpath-popup-list"><li class="travelpath-popup-pill">'+members.length+'</li>';
   members.forEach(function(m) { h += '<li>'+esc(m)+'</li>'; });
-  h += '</ul></div>';
+  h += '</ul>';
+  if (SHOW_STATS && groupDist > 0) {
+    var noun = IS_HUB ? 'flight' : 'segment';
+    h += '<div class="travelpath-popup-stats">'
+       + groupCount + '\u2009' + noun + (groupCount !== 1 ? 's' : '')
+       + ' \u00b7 ' + fmtDist(groupDist) + '</div>';
+  }
+  h += '</div>';
   return h;
 }
 
@@ -860,7 +889,7 @@ function initTravelpath() {
           iconSize: [size, size]
         });
       },
-      maxClusterRadius: 45,
+      maxClusterRadius: 28,
       zoomToBoundsOnClick: false,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false
