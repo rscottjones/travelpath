@@ -246,8 +246,6 @@
 {{ $mapRadius := "12px" }}
 {{ if $showGrid }}{{ $mapRadius = "12px 12px 0 0" }}{{ end }}
 
-<div class="travelpath-wrapper" id="{{ $mapID }}-wrapper">
-
 <p class="travelpath-sr-only">[Interactive travel map — visit the original post to explore it.]</p>
 <div id="{{ $mapID }}"
      style="width:100%;height:{{ $height }} !important;border-radius:{{ $mapRadius }};margin:30px 0 0;position:relative;z-index:0;">
@@ -321,17 +319,6 @@
 
 </div>
 {{ end }}{{/* /showGrid */}}
-
-{{/* ══ 11b. MODAL POPUP (Colormap-style) ══ */}}
-<div class="travelpath-popup" hidden
-     role="dialog" aria-modal="true">
-  <div class="travelpath-popup__card">
-    <button class="travelpath-popup__close" aria-label="Close">&#215;</button>
-    <div class="travelpath-popup__body"></div>
-  </div>
-</div>
-
-</div>{{/* /travelpath-wrapper */}}
 
 {{/* ══ 12. PER-INSTANCE SCRIPT ══ */}}
 <script>
@@ -710,37 +697,10 @@ function placePin(lat, lon, iconName, color, popupHTML, target) {
 var _activeSegIdx = null;
 var _activeLegend = null;
 
-/* Modal popup (Colormap-style) for legend/hub/stats tiles */
-function openModal(html) {
-  var wrapper = document.getElementById(MAP_ID).closest('.travelpath-wrapper') || document.getElementById(MAP_ID).parentNode;
-  var modal = wrapper.querySelector('.travelpath-popup');
-  if (!modal) return;
-  var card = modal.querySelector('.travelpath-popup__card');
-  var body = modal.querySelector('.travelpath-popup__body');
-  if (body) body.innerHTML = html;
-  modal.hidden = false;
-  wrapper.style.zIndex = '1';
-  var closeBtn = modal.querySelector('.travelpath-popup__close');
-  if (closeBtn) closeBtn.focus();
-  document.body.style.overflow = 'hidden';
-  /* Wire media triggers inside modal */
-  wireMediaClicks(modal);
-}
-
-function closeModal() {
-  var wrapper = document.getElementById(MAP_ID).closest('.travelpath-wrapper') || document.getElementById(MAP_ID).parentNode;
-  var modal = wrapper.querySelector('.travelpath-popup');
-  if (!modal) return;
-  modal.hidden = true;
-  wrapper.style.zIndex = '';
-  document.body.style.overflow = '';
-}
-
 function onSegment(btn) {
   var idx = parseInt(btn.getAttribute('data-idx'), 10);
   if (_activeSegIdx === idx && _activeLegend === null) {
     clearHighlight(); _activeSegIdx = null;
-    closeModal();
     if (_map) _map.closePopup(); return;
   }
   _activeSegIdx = idx; _activeLegend = null;
@@ -748,7 +708,7 @@ function onSegment(btn) {
   var seg = segments[idx];
   if (seg && _map) {
     _map.panTo([seg.lat, seg.lon], { animate: true, duration: 0.4 });
-    openModal(buildSegmentHTML(seg));
+    showPopup([seg.lat, seg.lon], buildSegmentHTML(seg));
   }
 }
 
@@ -756,23 +716,32 @@ function onLegend(btn) {
   var name = btn.getAttribute('data-legend');
   if (_activeLegend === name) {
     clearHighlight(); _activeLegend = null;
-    closeModal(); return;
+    if (_map) _map.closePopup(); return;
   }
   _activeLegend = name; _activeSegIdx = null;
   highlightLegend(name);
   var members = [];
   try { members = JSON.parse(btn.getAttribute('data-keys') || '[]'); } catch(e) {}
-  openModal(buildLegendHTML(name, members));
+  /* Anchor popup at first segment in this legend group (stable coords, no drift) */
+  var anchor = null;
+  for (var i = 0; i < segments.length; i++) {
+    if (segments[i].legend === name) { anchor = [segments[i].lat, segments[i].lon]; break; }
+  }
+  if (_map) showPopup(anchor || [segments[0].lat, segments[0].lon], buildLegendHTML(name, members));
 }
 
 function onHub() {
   clearHighlight(); _activeLegend = null; _activeSegIdx = null;
-  if (HUB) openModal(buildHubHTML());
+  if (_map && HUB) showPopup([HUB.lat, HUB.lon], buildHubHTML());
 }
 
 function onStats() {
   clearHighlight(); _activeLegend = null; _activeSegIdx = null;
-  openModal(buildStatsHTML());
+  /* Anchor at hub (hub mode) or first segment (journey mode) — never getCenter() */
+  var anchor = (IS_HUB && HUB) ? [HUB.lat, HUB.lon]
+    : segments.length ? [segments[0].lat, segments[0].lon]
+    : [0, 0];
+  if (_map) showPopup(anchor, buildStatsHTML());
 }
 
 /* ── Media click interception inside Leaflet popups ── */
@@ -926,33 +895,13 @@ function initTravelpath() {
     else _map.setView([20, 0], 2);
   }
 
-  /* Map background click → clear highlight and close modal */
+  /* Map background click → clear highlight */
   _map.on('click', function() {
     clearHighlight(); _activeLegend = null; _activeSegIdx = null;
-    closeModal();
   });
 
   /* Wire media click interception */
   wireMediaClicks(_map.getContainer());
-
-  /* Modal popup close handlers */
-  var wrapper = document.getElementById(MAP_ID + '-wrapper');
-  if (wrapper) {
-    var modal = wrapper.querySelector('.travelpath-popup');
-    if (modal) {
-      var closeBtn = modal.querySelector('.travelpath-popup__close');
-      if (closeBtn) closeBtn.addEventListener('click', function() { closeModal(); });
-      modal.addEventListener('click', function(e) { if (e.target === modal) closeModal(); });
-      modal.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' || e.key === 'Esc') { closeModal(); return; }
-        if (e.key !== 'Tab') return;
-        var focusable = modal.querySelectorAll('button,[href],[tabindex]:not([tabindex="-1"])');
-        var first = focusable[0], last = focusable[focusable.length - 1];
-        if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
-        else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
-      });
-    }
-  }
 
   /* Register instance for tile dispatcher */
   window.__tpInstances = window.__tpInstances || {};
