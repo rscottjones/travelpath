@@ -624,6 +624,13 @@ function clearHighlight() {
 
 /* ── Line drawing ── */
 function drawLine(map, from, to, seg, segIdx) {
+  /* Antimeridian fix: if longitude gap > 180°, shift the destination
+     so the line draws continuously without clipping at ±180°.
+     Pins stay at real coordinates — only the line endpoint is shifted. */
+  var lonDiff = to[1] - from[1];
+  if (lonDiff > 180)       { to = [to[0], to[1] - 360]; }
+  else if (lonDiff < -180) { to = [to[0], to[1] + 360]; }
+
   var st      = parseStyle(seg.lineStyle);
   var color   = seg.color || DEFAULT_LINE_COLOR;
   var weight  = DEFAULT_LINE_WEIGHT;
@@ -795,7 +802,7 @@ function initTravelpath() {
   if (typeof ensureVideoPlayer === 'function') ensureVideoPlayer();
 
   /* Create map */
-  _map = L.map(MAP_ID, { scrollWheelZoom: false, zoomSnap: 0, zoomDelta: 1 });
+  _map = L.map(MAP_ID, { scrollWheelZoom: false, zoomSnap: 0, zoomDelta: 1, worldCopyJump: true });
 
   /* Set a temporary view so tiles start loading immediately.
      fitBounds will override this once segments are processed. */
