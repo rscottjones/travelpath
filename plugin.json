@@ -1,0 +1,6 @@
+{
+  "version": "1.0",
+  "title": "Travelpath",
+  "description": "Draw journeys and hub-and-spoke flight maps with the travelpath shortcode. Supports great-circle lines, airport codes, legends, stats, clustering, lightbox, video, and audio.",
+  "fields": []
+}
