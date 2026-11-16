@@ -221,44 +221,47 @@
 {{ $mapID := printf "travelpath-%d" $n }}
 
 {{/* ══ 9. EMIT ONCE-PER-PAGE ASSETS ══ */}}
+{{/* ── Once-per-page assets ──
+     The shared core and overlay CSS are emitted by whichever sibling
+     shortcode renders first; the rest skip. The version is part of the
+     partial name and of the Scratch key, so each plugin always gets the
+     core it shipped with (see the header of geo-core-v1.html). */}}
+{{ if not (.Page.Scratch.Get "geoCore-v1") }}
+  {{ .Page.Scratch.Set "geoCore-v1" true }}
+  {{ partialCached "geo-core-v1.html" . }}
+{{ end }}
+
+{{ if not (.Page.Scratch.Get "geoMediaCSS-v1") }}
+  {{ .Page.Scratch.Set "geoMediaCSS-v1" true }}
+  {{ partialCached "geo-media-styles-v1.html" . }}
+{{ end }}
+
 {{ if not (.Page.Scratch.Get "travelpathCSS") }}
   {{ .Page.Scratch.Set "travelpathCSS" true }}
   {{ partialCached "travelpath-styles.html" . }}
 {{ end }}
 
-{{ if not (.Page.Scratch.Get "lightboxCSS") }}
-  {{ .Page.Scratch.Set "lightboxCSS" true }}
-  {{ .Page.Scratch.Set "videoPlayerCSS" true }}
-  {{ partialCached "travelpath-media-styles.html" . }}
+{{/* Travelpath-only JS: airports, tile dispatcher, geodesic/decorator */}}
+{{ if not (.Page.Scratch.Get "travelpathLib") }}
+  {{ .Page.Scratch.Set "travelpathLib" true }}
+  {{ partialCached "travelpath-lib.html" . }}
 {{ end }}
 
-{{ if not (.Page.Scratch.Get "videoPlayerCSS") }}
-  {{ .Page.Scratch.Set "videoPlayerCSS" true }}
-  {{/* Video styles are included in travelpath-media-styles — no separate partial needed */}}
-{{ end }}
-
-{{ if not (.Page.Scratch.Get "travelpathJS") }}
-  {{ .Page.Scratch.Set "travelpathJS" true }}
-  {{ partialCached "travelpath-shapes.html" . }}
-{{ end }}
-
-{{/* ══ 10. MAP CONTAINER HTML ══ */}}
-{{ $mapRadius := "12px" }}
-{{ if $showGrid }}{{ $mapRadius = "12px 12px 0 0" }}{{ end }}
-
-<p class="travelpath-sr-only">[Interactive travel map — visit the original post to explore it.]</p>
-<div id="{{ $mapID }}"
-     style="width:100%;height:{{ $height }} !important;border-radius:{{ $mapRadius }};margin:30px 0 0;position:relative;z-index:0;">
-  <noscript><div style="display:flex;align-items:center;justify-content:center;height:100%;background:#f0f0f0;border-radius:inherit;font-family:sans-serif;font-size:14px;color:#666;padding:20px;text-align:center;">This interactive map requires JavaScript to display.</div></noscript>
+{{/* ══ 10. MAP CONTAINER HTML ══
+     The bottom corners square off when the tile grid follows, handled
+     by .mb-tp-map--joined in travelpath-styles.html. */}}
+<p class="mb-sr-only">[Interactive travel map — visit the original post to explore it.]</p>
+<div id="{{ $mapID }}" class="mb-tp-map{{ if $showGrid }} mb-tp-map--joined{{ end }}" style="--mb-map-h: {{ $height }};">
+  <noscript><div class="mb-noscript">This interactive map requires JavaScript to display.</div></noscript>
 </div>
 
 {{/* ══ 11. TILE GRID HTML ══ */}}
 {{ if $showGrid }}
-<div class="travelpath-grid" role="list" aria-label="Travel segments">
+<div class="mb-tp-grid" role="list" aria-label="Travel segments">
 
   {{/* Legend tiles */}}
   {{ range $legendGroups }}
-    <button class="travelpath-tile travelpath-tile--legend"
+    <button class="mb-tp-tile mb-tp-tile--legend"
       style="--tile-color:{{ .color }};"
       data-legend="{{ .label }}"
       data-keys='{{ .members | jsonify }}'
@@ -267,21 +270,21 @@
       onclick="__tpTileClick('onLegend',this,'{{ $mapID }}')">{{ .label }}</button>
   {{ end }}
   {{ if $legendGroups }}
-    <div class="travelpath-tile-sep" role="presentation" aria-hidden="true"></div>
+    <div class="mb-tp-tile-sep" role="presentation" aria-hidden="true"></div>
   {{ end }}
 
   {{/* Hub tile */}}
   {{ if $isHub }}
     {{ $allLabels := slice }}
     {{ range $sortedSegs }}{{ $allLabels = $allLabels | append .label }}{{ end }}
-    <button class="travelpath-tile travelpath-tile--hub"
+    <button class="mb-tp-tile mb-tp-tile--hub"
       style="--tile-color:{{ $hubColor }};"
       data-label="{{ $hubLabel }}"
       data-keys='{{ $allLabels | jsonify }}'
       aria-label="Hub: {{ $hubLabel }}"
       role="listitem"
       onclick="__tpTileClick('onHub',this,'{{ $mapID }}')">&#9992;&#xFE0E;&thinsp;{{ $hubLabel }}</button>
-    <div class="travelpath-tile-sep" role="presentation" aria-hidden="true"></div>
+    <div class="mb-tp-tile-sep" role="presentation" aria-hidden="true"></div>
   {{ end }}
 
   {{/* Segment tiles */}}
@@ -293,7 +296,7 @@
       {{ if $seg.short }}{{ $tileLabel = printf "%v" $seg.short }}{{ end }}
     {{ end }}
 
-    <button class="travelpath-tile travelpath-tile--segment"
+    <button class="mb-tp-tile mb-tp-tile--segment"
       style="--tile-color:{{ $segColor }};"
       data-idx="{{ $i }}"
       data-label="{{ $seg.label }}"
@@ -302,14 +305,14 @@
       onclick="__tpTileClick('onSegment',this,'{{ $mapID }}')">{{ $tileLabel }}</button>
 
     {{ if and (not $isHub) $showArrows (lt $i (sub (len $sortedSegs) 1)) }}
-      <span class="travelpath-tile-arrow" aria-hidden="true">&#8250;</span>
+      <span class="mb-tp-tile-arrow" aria-hidden="true">&#8250;</span>
     {{ end }}
   {{ end }}
 
   {{/* Stats tile */}}
   {{ if $showStats }}
-    <div class="travelpath-tile-sep" role="presentation" aria-hidden="true"></div>
-    <button class="travelpath-tile travelpath-tile--stat"
+    <div class="mb-tp-tile-sep" role="presentation" aria-hidden="true"></div>
+    <button class="mb-tp-tile mb-tp-tile--stat"
       id="{{ $mapID }}-stat"
       style="--tile-color:#6b7280;"
       aria-label="Trip stats"
@@ -455,14 +458,10 @@ function detectType(url, urlType) {
   if (urlType === 'video') return 'video';
   if (urlType === 'audio') return 'audio';
   if (urlType === 'link')  return 'link';
-  /* Use the shared globals defined in map-media-helpers */
-  if (typeof isImageUrl === 'function' && isImageUrl(url)) return 'image';
-  if (typeof isVideoUrl === 'function' && isVideoUrl(url)) return 'video';
-  if (typeof isAudioUrl === 'function' && isAudioUrl(url)) return 'audio';
-  /* Inline fallback if helpers didn't load (standalone, no Maps/Tracks) */
-  if (/\.(jpe?g|png|gif|webp)(\?.*)?$/i.test(url)) return 'image';
-  if (/\.(mp4|m4v|mov|webm|ogv|m3u8)(\?.*)?$/i.test(url)) return 'video';
-  if (/\.(mp3|m4a|aac|ogg|oga|wav|flac)(\?.*)?$/i.test(url)) return 'audio';
+  var core = window.__geoCore;
+  if (core.isImageUrl(url)) return 'image';
+  if (core.isVideoUrl(url)) return 'video';
+  if (core.isAudioUrl(url)) return 'audio';
   return 'link';
 }
 
@@ -478,7 +477,7 @@ function buildSegmentHTML(seg) {
   /* Abbreviation line — short field, or airport code, shown above title */
   var abbr = seg.short || (seg.airport ? seg.airport.replace(/[() "']/g,'').toUpperCase() : '');
   if (abbr) {
-    h += '<p class="travelpath-popup-key" style="margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;">'+esc(abbr)+'</p>';
+    h += '<p class="mb-tp-popup-key" style="margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;">'+esc(abbr)+'</p>';
   }
 
   /* Parse URL — check for comma-separated image gallery */
@@ -502,7 +501,7 @@ function buildSegmentHTML(seg) {
   }
 
   /* Description */
-  if (seg.note) h += '<p class="travelpath-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(seg.note)+'</p>';
+  if (seg.note) h += '<p class="mb-tp-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(seg.note)+'</p>';
 
 
   /* Audio player */
@@ -512,7 +511,7 @@ function buildSegmentHTML(seg) {
   /* Stats footer */
   if (SHOW_STATS) {
     var i = seg.idx;
-    h += '<div class="travelpath-popup-stats">';
+    h += '<div class="mb-tp-popup-stats">';
     if (IS_HUB && HUB) {
       h += '\u2708\uFE0E\u00a0'+fmtDist(legDist[i]||0)+' from '+esc(HUB.label);
     } else {
@@ -545,13 +544,13 @@ function buildLegendHTML(label, members) {
 
   var h = '<div style="font-family:sans-serif;padding:5px;min-width:160px;">';
   h += '<h3 style="margin:0;font-size:16px;">'+esc(label)+'</h3>';
-  h += '<div class="travelpath-popup-divider"></div>';
-  h += '<ul class="travelpath-popup-list"><li class="travelpath-popup-pill">'+members.length+'</li>';
+  h += '<div class="mb-tp-popup-divider"></div>';
+  h += '<ul class="mb-tp-popup-list"><li class="mb-tp-popup-pill">'+members.length+'</li>';
   members.forEach(function(m) { h += '<li>'+esc(m)+'</li>'; });
   h += '</ul>';
   if (SHOW_STATS && groupDist > 0) {
     var noun = IS_HUB ? 'flight' : 'segment';
-    h += '<div class="travelpath-popup-stats">'
+    h += '<div class="mb-tp-popup-stats">'
        + groupCount + '\u2009' + noun + (groupCount !== 1 ? 's' : '')
        + ' \u00b7 ' + fmtDist(groupDist) + '</div>';
   }
@@ -563,12 +562,12 @@ function buildHubHTML() {
   var labels = segments.map(function(s) { return s.label; });
   var h = '<div style="font-family:sans-serif;padding:5px;min-width:160px;">';
   h += '<h3 style="margin:0;font-size:16px;">\u2708\uFE0E\u00a0'+esc(HUB.label)+'</h3>';
-  if (MAP_DESC) h += '<p class="travelpath-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(MAP_DESC)+'</p>';
-  h += '<div class="travelpath-popup-divider"></div>';
-  h += '<ul class="travelpath-popup-list"><li class="travelpath-popup-pill">'+labels.length+'</li>';
+  if (MAP_DESC) h += '<p class="mb-tp-popup-note" style="margin:6px 0 0;font-size:14px;">'+esc(MAP_DESC)+'</p>';
+  h += '<div class="mb-tp-popup-divider"></div>';
+  h += '<ul class="mb-tp-popup-list"><li class="mb-tp-popup-pill">'+labels.length+'</li>';
   labels.forEach(function(l) { h += '<li>'+esc(l)+'</li>'; });
   h += '</ul>';
-  if (SHOW_STATS) h += '<div class="travelpath-popup-stats">'+labels.length+' destination'+(labels.length!==1?'s':'')+' \u00b7 '+fmtDist(totalDist)+'</div>';
+  if (SHOW_STATS) h += '<div class="mb-tp-popup-stats">'+labels.length+' destination'+(labels.length!==1?'s':'')+' \u00b7 '+fmtDist(totalDist)+'</div>';
   h += '</div>';
   return h;
 }
@@ -578,8 +577,8 @@ function buildStatsHTML() {
   var noun = IS_HUB ? 'destination' : 'stop';
   var h = '<div style="font-family:sans-serif;padding:5px;min-width:160px;">';
   h += '<h3 style="margin:0;font-size:16px;">'+fmtDist(totalDist)+' \u00b7 '+labels.length+'\u2009'+noun+(labels.length!==1?'s':'')+'</h3>';
-  h += '<div class="travelpath-popup-divider"></div>';
-  h += '<ul class="travelpath-popup-list"><li class="travelpath-popup-pill">'+labels.length+'</li>';
+  h += '<div class="mb-tp-popup-divider"></div>';
+  h += '<ul class="mb-tp-popup-list"><li class="mb-tp-popup-pill">'+labels.length+'</li>';
   labels.forEach(function(l) { h += '<li>'+esc(l)+'</li>'; });
   h += '</ul></div>';
   return h;
@@ -726,7 +725,7 @@ function isNoPin(iconName) {
 }
 
 function placePin(lat, lon, iconName, color, popupHTML, target) {
-  var icon = window.__createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
+  var icon = window.__geoCore.createIcon(iconName || DEFAULT_PIN_ICON, color || DEFAULT_PIN_COLOR);
   var marker = L.marker([lat, lon], { icon: icon });
   if (target && typeof target.addLayer === 'function') {
     target.addLayer(marker);
@@ -788,45 +787,21 @@ function onStats() {
   if (_map) showPopup(anchor, buildStatsHTML());
 }
 
-/* ── Media click interception inside Leaflet popups ── */
-function wireMediaClicks(container) {
-  container.addEventListener('click', function(e) {
-    var imgLink = e.target.closest ? e.target.closest('.map-lightbox-trigger') : null;
-    if (imgLink) {
-      e.preventDefault();
-      /* Per-segment gallery (comma-separated images in url field) */
-      var customGallery = imgLink.getAttribute('data-gallery');
-      if (customGallery) {
-        try {
-          var gallery = JSON.parse(customGallery);
-          if (window.__mapLightbox) window.__mapLightbox.open(gallery, 0);
-        } catch(ex) {}
-        return;
-      }
-      /* Global gallery from all single-image segments */
-      var gallery = [];
-      segments.forEach(function(s) {
-        if (!s.url) return;
-        var urls = s.url.split(',').map(function(u) { return u.trim(); }).filter(Boolean);
-        /* Only include single-image segments in the global gallery */
-        if (urls.length === 1 && detectType(urls[0], s.urlType) === 'image') {
-          gallery.push({ url: urls[0], name: s.label });
-        }
-      });
-      var clickUrl = imgLink.getAttribute('href');
-      var startIdx = 0;
-      for (var i = 0; i < gallery.length; i++) {
-        if (gallery[i].url === clickUrl) { startIdx = i; break; }
-      }
-      if (window.__mapLightbox) window.__mapLightbox.open(gallery, startIdx);
-      return;
-    }
-    var vidLink = e.target.closest ? e.target.closest('.map-video-trigger') : null;
-    if (vidLink) {
-      e.preventDefault();
-      if (window.__mapVideoPlayer) window.__mapVideoPlayer.open(vidLink.getAttribute('href'), vidLink.getAttribute('data-name') || '');
+/* ── Media clicks ──
+   No wiring here: geo-core installs ONE delegated listener on document
+   for the whole page. This map only registers which single-image
+   segments make up its gallery, so "click one photo, arrow through the
+   rest" still means the rest of THIS map. */
+function registerGallery(container) {
+  var gallery = [];
+  segments.forEach(function(seg) {
+    if (!seg.url) return;
+    var urls = seg.url.split(',').map(function(u) { return u.trim(); }).filter(Boolean);
+    if (urls.length === 1 && detectType(urls[0], seg.urlType) === 'image') {
+      gallery.push({ url: urls[0], name: seg.label });
     }
   });
+  window.__geoCore.registerGallery(container, gallery);
 }
 
 /* ══ MAIN INIT ══ */
@@ -835,8 +810,8 @@ function initTravelpath() {
   if (!el) return;
 
   /* Ensure shared media overlays exist */
-  if (typeof ensureLightbox === 'function') ensureLightbox();
-  if (typeof ensureVideoPlayer === 'function') ensureVideoPlayer();
+  window.__geoCore.ensureLightbox();
+  window.__geoCore.ensureVideoPlayer();
 
   /* Create map */
   _map = L.map(MAP_ID, { scrollWheelZoom: false, zoomSnap: 0, zoomDelta: 1 });
@@ -846,7 +821,7 @@ function initTravelpath() {
   _map.setView([20, 0], 2);
 
   /* Basemap */
-  var bm = (window.__mapBasemaps || {})[BASEMAP] || (window.__mapBasemaps || {}).osm;
+  var bm = window.__geoCore.basemaps[BASEMAP] || window.__geoCore.basemaps.osm;
   if (bm) {
     L.tileLayer(bm.url, {
       attribution: bm.attribution,
@@ -954,7 +929,7 @@ function initTravelpath() {
         var size = count < 10 ? 34 : count < 100 ? 40 : 46;
         return L.divIcon({
           html: '<span>' + count + '</span>',
-          className: 'map-cluster',
+          className: 'mb-tp-cluster',
           iconSize: [size, size]
         });
       },
@@ -1020,7 +995,7 @@ function initTravelpath() {
   });
 
   /* Wire media click interception */
-  wireMediaClicks(_map.getContainer());
+  registerGallery(_map.getContainer());
 
   /* Register instance for tile dispatcher */
   window.__tpInstances = window.__tpInstances || {};
@@ -1029,30 +1004,20 @@ function initTravelpath() {
   };
 }
 
-/* ── Loading chain ── */
-function loadCluster(cb) {
-  if (typeof L.markerClusterGroup === 'function') { cb(); return; }
-  var css = document.createElement('link');
-  css.rel = 'stylesheet';
-  css.href = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css';
-  document.head.appendChild(css);
-  var js = document.createElement('script');
-  js.src = 'https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';
-  js.onload = cb;
-  js.onerror = function() { console.warn('Travelpath: markercluster failed to load'); cb(); };
-  document.head.appendChild(js);
-}
-
+/* ── Dependency chain ──
+   Leaflet -> (geodesic?) -> (decorator?) -> (cluster?) -> init.
+   Every link is __geoCore.loadOnce underneath: one queue per library,
+   shared with every plugin on the page. */
 function boot() {
-  /* Build dependency chain: leaflet → (geodesic?) → (decorator?) → (cluster?) → init */
+  var core = window.__geoCore;
   var chain = initTravelpath;
-  if (CLUSTER) { var _next = chain; chain = function() { loadCluster(_next); }; }
-  if (NEEDS_DECORATOR) { var _next2 = chain; chain = function() { window.__tpLoadDecorator(_next2); }; }
-  if (NEEDS_GEODESIC) { var _next3 = chain; chain = function() { window.__tpLoadGeodesic(_next3); }; }
-  chain();
+  if (CLUSTER)         { var _n1 = chain; chain = function() { core.ensureCluster(_n1); }; }
+  if (NEEDS_DECORATOR) { var _n2 = chain; chain = function() { window.__tpLoadDecorator(_n2); }; }
+  if (NEEDS_GEODESIC)  { var _n3 = chain; chain = function() { window.__tpLoadGeodesic(_n3); }; }
+  core.ensureLeaflet(chain);
 }
 
-window.__tpEnsureLeaflet(boot);
+(window.__geoQueue = window.__geoQueue || []).push(boot);
 
 })();
 </script>

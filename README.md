@@ -23,8 +23,10 @@ Copy the `travelpath/` folder into your Micro.blog plugin directory. The plugin 
 travelpath/
 ├── layouts/shortcodes/travelpath.html          ← shortcode
 ├── layouts/partials/travelpath-styles.html     ← CSS (emitted once per page)
-├── layouts/partials/travelpath-shapes.html     ← shared JS: basemaps, icons, loaders
-├── layouts/partials/travelpath-media-styles.html ← lightbox/video CSS
+├── layouts/partials/travelpath-lib.html        ← Travelpath-only JS: airports, tile clicks
+├── layouts/partials/geo-core-v1.html           ← shared with Maps and Tracks: icons, basemaps, loader
+├── layouts/partials/geo-media-styles-v1.html   ← shared lightbox/video CSS
+├── plugin.json
 ├── static/travelpath/                          ← (empty — all deps loaded from CDN)
 └── data/travelpath/
     ├── iceland.yml                  ← example: simple journey
@@ -167,15 +169,23 @@ arrows: true           # show › between journey tiles
 
 ## Icons
 
-Built-in shapes: `pin`, `pin-small`, `circle`, `disc`, `bullseye`, `star`, `heart`, `camera`, `video`, `image`, `gallery`, `mountain`, `landmark`, `utensils`, `droplet`, `binoculars`, `microphone`, `flag-checkered`, `triangle-exclamation`, `point`
+Maps, Tracks and Travelpath draw from one icon set, defined in `geo-core-v1.html`. Any name below works anywhere an `icon:` field is accepted.
 
-Transport aliases: `plane`, `train`, `car`, `boat`, `bus`, `hike`, `bike`
+| Category | Values |
+|---|---|
+| Pins | `pin`, `pin-small` |
+| Plain shapes | `point` (12 px), `circle` (20 px, white stroke), `disc` (26 px), `bullseye` (hollow ring) |
+| Status badges | `check`, `x`, `dot`, `plus`, `minus` |
+| Favourites | `heart`, `star`, `star-half`, `star-empty` |
+| Media | `camera`, `video`, `image`, `gallery` |
+| Places | `mountain`, `binoculars`, `landmark`, `utensils`, `droplet`, `microphone`, `flag`, `warning` |
+| Endpoints | `start`, `finish` (Tracks places these automatically) |
+| Labels | `icon-new` |
+| Numbered | `icon-0` … `icon-9` (large single digit), `icon-00` … `icon-99` (small two digit) |
+| Font Awesome | any `fa-` prefixed name, e.g. `fa-utensils`, `fa-mug-hot` |
+| Emoji | any other value, rendered as-is, e.g. `"🏯"`, `"⛺"` |
 
-Numbered circles: `circle-0` through `circle-99`
-
-Font Awesome: any `fa-` icon name (e.g. `fa-plane`, `fa-ship`)
-
-Emoji: any unicode character (e.g. `✈`, `🚄`)
+Badges are a white glyph inside a filled circle, coloured by the marker's `color` field. `fa-` icons render a coloured glyph on a transparent background instead; the Font Awesome stylesheet loads only on pages that use one.
 
 ---
 
